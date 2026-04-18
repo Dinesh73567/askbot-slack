@@ -14,30 +14,51 @@ vi.mock('@slack/bolt', () => {
   };
 });
 
+// Mock auth routes so Express does not try to instantiate real Prisma
+vi.mock('../auth/oauth-routes.js', async () => {
+  const { Router } = await import('express');
+  return {
+    createOAuthRouter: vi.fn(() => Router()),
+  };
+});
+
 const { createApp } = await import('./app.js');
 
 const mockConfig: AppConfig = Object.freeze({
   slackBotToken: 'xoxb-test-token',
   slackAppToken: 'xapp-test-token',
   slackSigningSecret: 'test-secret',
+  slackClientId: 'client123',
+  slackClientSecret: 'clientsecret',
   anthropicApiKey: 'sk-ant-test',
   claudeModel: 'claude-sonnet-4-20250514',
   logLevel: 'info',
   rateLimitPerUserPerMinute: 5,
+  appUrl: 'https://example.com',
+  port: 3000,
+  databaseUrl: 'file:./dev.db',
+  databaseProvider: 'sqlite',
 });
 
 describe('createApp', () => {
-  it('creates an App instance', () => {
+  it('returns boltApp and expressApp', () => {
     const logger = createLogger('error');
-    const app = createApp(mockConfig, logger);
-    expect(app).toBeDefined();
-    expect(app.start).toBeDefined();
-    expect(app.stop).toBeDefined();
+    const { boltApp, expressApp } = createApp(mockConfig, logger);
+    expect(boltApp).toBeDefined();
+    expect(boltApp.start).toBeDefined();
+    expect(boltApp.stop).toBeDefined();
+    expect(expressApp).toBeDefined();
   });
 
-  it('registers the app_mention event handler', () => {
+  it('registers the app_mention event handler on boltApp', () => {
     const logger = createLogger('error');
-    const app = createApp(mockConfig, logger);
-    expect(app.event).toHaveBeenCalledWith('app_mention', expect.any(Function));
+    const { boltApp } = createApp(mockConfig, logger);
+    expect(boltApp.event).toHaveBeenCalledWith('app_mention', expect.any(Function));
+  });
+
+  it('registers the message event handler on boltApp', () => {
+    const logger = createLogger('error');
+    const { boltApp } = createApp(mockConfig, logger);
+    expect(boltApp.event).toHaveBeenCalledWith('message', expect.any(Function));
   });
 });
