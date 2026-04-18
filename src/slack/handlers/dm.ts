@@ -21,15 +21,19 @@ export function registerDmHandler(app: App, logger: Logger): void {
       return;
     }
 
-    const question = stripBotMention(event.text);
+    try {
+      const question = stripBotMention(event.text);
 
-    logger.info({ userId, channel: event.channel }, 'Received DM');
+      logger.info({ userId, channel: event.channel }, 'Received DM');
 
-    const response = buildEchoResponse(question);
+      const response = buildEchoResponse(question);
 
-    await client.chat.postMessage({
-      channel: event.channel,
-      text: response,
-    });
+      await client.chat.postMessage({
+        channel: event.channel,
+        text: response,
+      });
+    } catch (error) {
+      logger.error({ err: error, userId, channel: event.channel }, 'Failed to handle DM');
+    }
   });
 }

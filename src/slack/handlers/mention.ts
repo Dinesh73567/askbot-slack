@@ -16,17 +16,23 @@ export function buildEchoResponse(question: string): string {
 
 export function registerMentionHandler(app: App, logger: Logger): void {
   app.event('app_mention', async ({ event, client }) => {
-    const rawText = event.text ?? '';
-    const question = stripBotMention(rawText);
+    if (!event.user) return;
 
-    logger.info({ userId: event.user, channel: event.channel }, 'Received mention');
+    try {
+      const rawText = event.text ?? '';
+      const question = stripBotMention(rawText);
 
-    const response = buildEchoResponse(question);
+      logger.info({ userId: event.user, channel: event.channel }, 'Received mention');
 
-    await client.chat.postEphemeral({
-      channel: event.channel,
-      user: event.user ?? '',
-      text: response,
-    });
+      const response = buildEchoResponse(question);
+
+      await client.chat.postEphemeral({
+        channel: event.channel,
+        user: event.user,
+        text: response,
+      });
+    } catch (error) {
+      logger.error({ err: error, userId: event.user, channel: event.channel }, 'Failed to handle mention');
+    }
   });
 }
