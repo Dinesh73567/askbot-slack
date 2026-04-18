@@ -14,6 +14,10 @@ vi.mock('@slack/bolt', () => {
   };
 });
 
+vi.mock('../ai/summarizer.js', () => ({
+  createAnthropicClient: vi.fn(() => ({})),
+}));
+
 const { createApp } = await import('./app.js');
 
 const mockConfig: AppConfig = Object.freeze({
@@ -35,9 +39,10 @@ describe('createApp', () => {
     expect(app.stop).toBeDefined();
   });
 
-  it('registers the app_mention event handler', () => {
+  it('registers event handlers', () => {
     const logger = createLogger('error');
     const app = createApp(mockConfig, logger);
     expect(app.event).toHaveBeenCalledWith('app_mention', expect.any(Function));
+    expect(app.event).toHaveBeenCalledWith('message', expect.any(Function));
   });
 });

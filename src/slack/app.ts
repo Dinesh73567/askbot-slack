@@ -1,6 +1,7 @@
 import { App, LogLevel } from '@slack/bolt';
 import type { AppConfig } from '../types/index.js';
 import type { Logger } from '../utils/logger.js';
+import { createAnthropicClient } from '../ai/summarizer.js';
 import { registerMentionHandler } from './handlers/mention.js';
 import { registerDmHandler } from './handlers/dm.js';
 
@@ -20,8 +21,10 @@ export function createApp(config: AppConfig, logger: Logger): App {
     logLevel: LOG_LEVEL_MAP[config.logLevel] ?? LogLevel.INFO,
   });
 
-  registerMentionHandler(app, logger);
-  registerDmHandler(app, logger);
+  const anthropic = createAnthropicClient(config.anthropicApiKey);
+
+  registerMentionHandler(app, anthropic, config.claudeModel, logger);
+  registerDmHandler(app, anthropic, config.claudeModel, logger);
 
   return app;
 }

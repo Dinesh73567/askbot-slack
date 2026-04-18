@@ -1,5 +1,8 @@
 import type { App } from '@slack/bolt';
+import type Anthropic from '@anthropic-ai/sdk';
 import type { Logger } from '../../utils/logger.js';
+import { formatThinkingResponse } from '../../formatter/slack-blocks.js';
+import { handleQuestion } from './pipeline.js';
 
 const BOT_MENTION_REGEX = /<@[A-Z0-9]+>/;
 
@@ -14,19 +17,39 @@ export function buildEchoResponse(question: string): string {
   return `I heard: ${question}`;
 }
 
-export function registerMentionHandler(app: App, logger: Logger): void {
+export function registerMentionHandler(
+  app: App,
+  anthropic: Anthropic,
+  model: string,
+  logger: Logger,
+): void {
   app.event('app_mention', async ({ event, client }) => {
     const rawText = event.text ?? '';
     const question = stripBotMention(rawText);
+    const userId = event.user ?? '';
 
-    logger.info({ userId: event.user, channel: event.channel }, 'Received mention');
-
-    const response = buildEchoResponse(question);
+    logger.info({ userId, channel: event.channel }, 'Received mention');
 
     await client.chat.postEphemeral({
       channel: event.channel,
-      user: event.user ?? '',
-      text: response,
+      user: userId,
+      text: formatThinkingResponse(),
+    });
+
+    const result = await handleQuestion({
+      client,
+      anthropic,
+      question,
+      userId,
+      model,
+      logger,
+    });
+
+    await client.chat.postEphemeral({
+      channel: event.channel,
+      user: userId,
+      text: result.text,
+      blocks: result.blocks as never[],
     });
   });
 }
