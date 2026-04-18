@@ -5,6 +5,7 @@ import { createLogger } from '../utils/logger.js';
 vi.mock('@slack/bolt', () => {
   const mockApp = {
     event: vi.fn(),
+    command: vi.fn(),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
   };

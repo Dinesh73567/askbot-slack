@@ -20,7 +20,7 @@ export function buildAuthorizeUrl(config: AppConfig, userId: string): string {
   const state = buildState(userId, config.slackSigningSecret);
   const params = new URLSearchParams({
     client_id: config.slackClientId,
-    user_scope: 'search:read',
+    user_scope: 'search:read,chat:write',
     redirect_uri: getRedirectUri(config.appUrl),
     state,
   });

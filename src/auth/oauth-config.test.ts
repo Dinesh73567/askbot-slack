@@ -35,9 +35,9 @@ describe('buildAuthorizeUrl', () => {
     expect(url).toContain('client_id=client123');
   });
 
-  it('requests user_scope=search:read', () => {
+  it('requests user_scope=search:read,chat:write', () => {
     const url = buildAuthorizeUrl(baseConfig, 'U12345');
-    expect(url).toContain('user_scope=search%3Aread');
+    expect(url).toContain('user_scope=search%3Aread%2Cchat%3Awrite');
   });
 
   it('includes a signed state parameter (not the raw userId)', () => {

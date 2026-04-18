@@ -17,9 +17,10 @@ export async function summarize(
   model: string,
   query: ParsedQuery,
   results: readonly SearchResult[],
+  userNames?: ReadonlyMap<string, string>,
 ): Promise<Envelope<AISummary>> {
   const client = new Anthropic({ apiKey });
-  const userPrompt = buildUserPrompt(query, results);
+  const userPrompt = buildUserPrompt(query, results, userNames);
 
   const channelNames = [...new Set(results.map((r) => r.channelName).filter(Boolean))];
 

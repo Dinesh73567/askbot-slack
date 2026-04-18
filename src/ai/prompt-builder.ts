@@ -15,11 +15,16 @@ RULES:
  * Format a single search result as a readable message block for the prompt.
  * Never includes the full token; only message IDs and text.
  */
-function formatMessage(result: SearchResult, index: number): string {
+function formatMessage(
+  result: SearchResult,
+  index: number,
+  userNames?: ReadonlyMap<string, string>,
+): string {
   const date = new Date(parseFloat(result.timestamp) * 1000).toISOString().split('T')[0];
   const reactions = result.reactionCount > 0 ? ` [${result.reactionCount} reactions]` : '';
   const replies = result.replyCount > 0 ? ` [${result.replyCount} replies]` : '';
-  return `[${index + 1}] @${result.userId} in #${result.channelName} (${date})${reactions}${replies}:\n${result.text}`;
+  const displayName = userNames?.get(result.userId) ?? result.userId;
+  return `[${index + 1}] @${displayName} in #${result.channelName} (${date})${reactions}${replies}:\n${result.text}`;
 }
 
 /**
@@ -29,6 +34,7 @@ function formatMessage(result: SearchResult, index: number): string {
 export function buildUserPrompt(
   query: ParsedQuery,
   results: readonly SearchResult[],
+  userNames?: ReadonlyMap<string, string>,
 ): string {
   if (results.length === 0) {
     return `The user asked: "${query.raw}"\n\nNo matching messages were found. Please inform the user and suggest alternative searches.`;
@@ -48,7 +54,7 @@ export function buildUserPrompt(
   for (const [channelName, messages] of grouped.entries()) {
     const header = `--- #${channelName} (${messages.length} message${messages.length === 1 ? '' : 's'}) ---`;
     const formatted = messages.map((m) => {
-      const line = formatMessage(m, globalIndex);
+      const line = formatMessage(m, globalIndex, userNames);
       globalIndex++;
       return line;
     });

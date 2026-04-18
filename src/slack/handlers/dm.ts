@@ -7,6 +7,7 @@ import { searchMessages } from '../../search/user-search.js';
 import { processResults } from '../../search/importance-scorer.js';
 import { summarize } from '../../ai/summarizer.js';
 import { buildResponseBlocks, buildNoResultsBlocks, buildConnectAccountBlocks } from '../../formatter/slack-blocks.js';
+import { UserResolver } from '../user-resolver.js';
 
 export function registerDmHandler(app: App, config: AppConfig, logger: Logger): void {
   app.event('message', async ({ event, client }) => {
@@ -94,12 +95,18 @@ export function registerDmHandler(app: App, config: AppConfig, logger: Logger): 
         return;
       }
 
+      // Step 7.5: Resolve user IDs to display names
+      const resolver = new UserResolver(client);
+      const userIds = topResults.map((r) => r.userId);
+      const userNames = await resolver.resolveAll(userIds);
+
       // Step 8: Summarize with Claude
       const summaryResult = await summarize(
         config.anthropicApiKey,
         config.claudeModel,
         parsedQuery,
         topResults,
+        userNames,
       );
       if (!summaryResult.success) {
         logger.error({ userId, error: summaryResult.error }, 'Summarization failed');
