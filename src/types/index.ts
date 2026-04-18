@@ -20,7 +20,6 @@ export interface AISummary {
 /** Validated environment configuration */
 export interface AppConfig {
   readonly slackBotToken: string;
-  readonly slackAppToken: string;
   readonly slackSigningSecret: string;
   readonly slackClientId: string;
   readonly slackClientSecret: string;

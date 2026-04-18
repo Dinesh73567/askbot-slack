@@ -1,5 +1,5 @@
 import express, { type Express } from 'express';
-import { App, LogLevel } from '@slack/bolt';
+import { App, ExpressReceiver, LogLevel } from '@slack/bolt';
 import type { AppConfig } from '../types/index.js';
 import type { Logger } from '../utils/logger.js';
 import { registerMentionHandler } from './handlers/mention.js';
@@ -20,12 +20,17 @@ export interface CreatedApp {
 }
 
 export function createApp(config: AppConfig, logger: Logger): CreatedApp {
-  // --- Bolt (Socket Mode) ---
+  // Bolt uses HTTP Events API (not Socket Mode). The receiver exposes an Express
+  // router that we mount at /slack so Slack POSTs events to /slack/events.
+  const receiver = new ExpressReceiver({
+    signingSecret: config.slackSigningSecret,
+    endpoints: '/events',
+    processBeforeResponse: true,
+  });
+
   const boltApp = new App({
     token: config.slackBotToken,
-    appToken: config.slackAppToken,
-    signingSecret: config.slackSigningSecret,
-    socketMode: true,
+    receiver,
     logLevel: LOG_LEVEL_MAP[config.logLevel] ?? LogLevel.INFO,
   });
 
@@ -33,15 +38,18 @@ export function createApp(config: AppConfig, logger: Logger): CreatedApp {
   registerDmHandler(boltApp, config, logger);
   registerDeleteHandler(boltApp, logger);
 
-  // --- Express (OAuth routes) ---
+  // Combined Express app: OAuth routes + Slack events + health check.
   const expressApp = express();
+
+  // Mount Slack events FIRST, before express.json(). Bolt's receiver needs the raw
+  // body to verify the request signature; a prior express.json() would consume it.
+  expressApp.use('/slack', receiver.router);
+
   expressApp.use(express.json());
 
-  // Mount OAuth router under /auth
   const oauthRouter = createOAuthRouter(config, logger);
   expressApp.use('/auth', oauthRouter);
 
-  // Health check
   expressApp.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

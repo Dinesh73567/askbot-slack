@@ -3,7 +3,6 @@ import type { AppConfig } from '../types/index.js';
 
 const envSchema = z.object({
   SLACK_BOT_TOKEN: z.string().startsWith('xoxb-', 'Must be a bot token (xoxb-)'),
-  SLACK_APP_TOKEN: z.string().startsWith('xapp-', 'Must be an app token (xapp-)'),
   SLACK_SIGNING_SECRET: z.string().min(1, 'Signing secret is required'),
   SLACK_CLIENT_ID: z.string().min(1, 'Slack client ID is required'),
   SLACK_CLIENT_SECRET: z.string().min(1, 'Slack client secret is required'),
@@ -31,7 +30,6 @@ export function loadConfig(): AppConfig {
 
   return Object.freeze({
     slackBotToken: parsed.data.SLACK_BOT_TOKEN,
-    slackAppToken: parsed.data.SLACK_APP_TOKEN,
     slackSigningSecret: parsed.data.SLACK_SIGNING_SECRET,
     slackClientId: parsed.data.SLACK_CLIENT_ID,
     slackClientSecret: parsed.data.SLACK_CLIENT_SECRET,

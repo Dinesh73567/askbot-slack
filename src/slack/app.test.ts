@@ -2,15 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import type { AppConfig } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
 
-vi.mock('@slack/bolt', () => {
+vi.mock('@slack/bolt', async () => {
+  const { Router } = await import('express');
   const mockApp = {
     event: vi.fn(),
     command: vi.fn(),
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
   };
   return {
     App: vi.fn(() => mockApp),
+    ExpressReceiver: vi.fn(() => ({ router: Router() })),
     LogLevel: { DEBUG: 'debug', INFO: 'info', WARN: 'warn', ERROR: 'error' },
   };
 });
@@ -46,8 +46,6 @@ describe('createApp', () => {
     const logger = createLogger('error');
     const { boltApp, expressApp } = createApp(mockConfig, logger);
     expect(boltApp).toBeDefined();
-    expect(boltApp.start).toBeDefined();
-    expect(boltApp.stop).toBeDefined();
     expect(expressApp).toBeDefined();
   });
 
