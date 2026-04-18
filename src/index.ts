@@ -1,8 +1,7 @@
 import 'dotenv/config';
 import { loadConfig } from './config/env.js';
 import { createLogger } from './utils/logger.js';
-
-// TODO: Import and wire up createApp from ./slack/app.js
+import { createApp } from './slack/app.js';
 
 async function main() {
   const config = loadConfig();
@@ -10,15 +9,14 @@ async function main() {
 
   logger.info('AskBot starting...');
 
-  // TODO: Create Bolt app and start
-  // const app = createApp(config, logger);
-  // await app.start();
+  const app = createApp(config, logger);
+  await app.start();
 
   logger.info('AskBot is running! Waiting for messages...');
 
   const shutdown = async () => {
     logger.info('Shutting down...');
-    // TODO: await app.stop();
+    await app.stop();
     process.exit(0);
   };
 
@@ -27,6 +25,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('Failed to start AskBot:', error);
+  const logger = createLogger('error');
+  logger.error({ err: error }, 'Failed to start AskBot');
   process.exit(1);
 });
