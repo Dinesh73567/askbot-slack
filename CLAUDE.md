@@ -1,5 +1,17 @@
 # AskBot Slack - AI Workspace Knowledge Assistant
 
+## Auto Instructions for Claude Code
+
+When a developer opens this project with Claude Code, follow these rules:
+
+1. **First session:** Read this CLAUDE.md fully, then read PLAN.md to understand what's built and what's remaining
+2. **When dev says "build step X"** or **"follow PLAN.md step X":** Read PLAN.md, find that step, implement it completely with tests
+3. **When dev says "build everything":** Read PLAN.md, check what's already implemented in src/, build remaining steps in order
+4. **When dev says "what's the status":** List which PLAN.md steps are done (have code) vs remaining (empty dirs or TODOs)
+5. **Before writing any code:** Read src/types/index.ts for interfaces, src/utils/envelope.ts for the Envelope pattern, and existing code in the same module
+6. **After writing code:** Run `npm run typecheck` and `npm test` to verify
+7. **Use the askbot-builder agent** (in .claude/agents/) for any implementation work — it has full context on Slack API patterns and Claude API patterns
+
 ## Project Overview
 
 **Stack:** Node.js 20+, TypeScript, Slack Bolt (Socket Mode), Anthropic Claude API, Zod, Pino, Vitest
@@ -7,6 +19,13 @@
 **What it does:** A Slack bot that answers any question by reading messages from channels it's invited to, filtering relevant ones, and summarizing with Claude AI. Users ask via `@AskBot` mention or `/askbot` slash command.
 
 **Architecture:** Hybrid approach - uses bot token only (no user token). Bot reads messages via `conversations.history` from channels it's been `/invite`d to. No OAuth flow, no database, no public server needed.
+
+## Core Use Cases
+
+1. **Personal Activity:** "What did I do today?" — filters to user's own messages, summarizes
+2. **Channel Summary:** "Summarize #general" — fetches channel messages, summarizes key points
+3. **Smart Q&A:** "What's the latest on Project X?" — searches across all channels, finds relevant messages
+4. **Catch-up:** "What did I miss yesterday?" — filters by time range, summarizes highlights
 
 ## Critical Rules
 
