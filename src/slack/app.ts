@@ -2,6 +2,7 @@ import { App, LogLevel } from '@slack/bolt';
 import type { AppConfig } from '../types/index.js';
 import type { Logger } from '../utils/logger.js';
 import { registerMentionHandler } from './handlers/mention.js';
+import { registerDmHandler } from './handlers/dm.js';
 
 const LOG_LEVEL_MAP: Record<string, LogLevel> = {
   debug: LogLevel.DEBUG,
@@ -20,6 +21,7 @@ export function createApp(config: AppConfig, logger: Logger): App {
   });
 
   registerMentionHandler(app, logger);
+  registerDmHandler(app, logger);
 
   return app;
 }
