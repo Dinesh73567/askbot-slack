@@ -15,13 +15,18 @@ export function buildEchoResponse(question: string): string {
 }
 
 export function registerMentionHandler(app: App, logger: Logger): void {
-  app.event('app_mention', async ({ event, say }) => {
+  app.event('app_mention', async ({ event, client }) => {
     const rawText = event.text ?? '';
     const question = stripBotMention(rawText);
 
     logger.info({ userId: event.user, channel: event.channel }, 'Received mention');
 
     const response = buildEchoResponse(question);
-    await say(response);
+
+    await client.chat.postEphemeral({
+      channel: event.channel,
+      user: event.user ?? '',
+      text: response,
+    });
   });
 }
