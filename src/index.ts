@@ -12,16 +12,18 @@ async function main() {
 
   const { boltApp, expressApp } = createApp(config, logger);
 
-  // Start Bolt Socket Mode
-  await boltApp.start();
-  logger.info('Bolt Socket Mode connected');
-
-  // Start Express for OAuth routes
+  // Start Express FIRST so the health check responds even if Slack Socket Mode hangs.
   // Railway (and similar PaaS) injects PORT at runtime; config.port is the fallback.
   const port = parseInt(process.env.PORT ?? String(config.port), 10);
   const httpServer = expressApp.listen(port, () => {
     logger.info({ port }, 'Express HTTP server listening');
   });
+
+  // Start Bolt Socket Mode in the background. Log failures but do not block the HTTP server.
+  boltApp
+    .start()
+    .then(() => logger.info('Bolt Socket Mode connected'))
+    .catch((err) => logger.error({ err }, 'Bolt Socket Mode failed to start'));
 
   logger.info('AskBot is running! Waiting for messages...');
 
