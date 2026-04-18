@@ -1,345 +1,334 @@
 # AskBot — Full Implementation Prompt for Developer
 
-> Give this entire file to your dev. They open Claude Code in the project and paste this prompt.
-> This replaces the step-by-step PLAN.md approach with a single comprehensive build instruction.
+> Give this entire file to your dev. They open Claude Code in the project and paste:
+> `Read DEV-PROMPT.md and implement everything. Start with the build order at the bottom.`
 
 ---
-
-## Prompt to give your dev:
-
-```
-Read CLAUDE.md and PLAN.md first for project context. Then implement the full AskBot as described below.
-Build incrementally — get each layer working before moving to the next. Run npm run typecheck after each file.
 
 ## What to Build
 
-AskBot is an AI-powered Slack knowledge assistant. Users DM the bot with natural language questions. 
-The bot searches across ALL accessible Slack data, uses Claude AI to generate an intelligent answer, 
-and replies in the DM. No @mention needed — user just types a message to the bot.
+AskBot is an AI-powered Slack knowledge assistant. Users DM the bot with natural language questions.
+The bot uses **per-user OAuth** — each user authorizes once, then the bot can search everything
+they have access to (channels, DMs, group DMs) using their own token. No `/invite` needed.
 
 ## Interaction Model
 
-User opens the bot's DM (clicks "Ask Slack bot" under Apps in sidebar) and types any question naturally.
-No slash commands. No @mentions. Just type and get an answer.
-
-Example:
-  User: "Give me today's important messages"
-  Bot: Searches all channels → filters important ones → Claude summarizes → sends formatted answer
-
-## Access Model (What the Bot Can Read)
-
-The bot should read ALL data it has access to via its bot token scopes:
-
-1. **All public channels** the bot is a member of (conversations.list + conversations.history)
-2. **All private channels** the bot is invited to (groups:history)  
-3. **Thread replies** in those channels (conversations.replies)
-4. **User profiles** for resolving names (users.list, users.info)
-
-Implementation:
-- On startup (and every 10 minutes), cache the full channel list via conversations.list
-- Cache user list via users.list (map user IDs to display names)
-- When a question comes in, fetch messages from relevant channels based on the query
-- Use conversations.replies to get thread context when needed
-- For time-based queries, use the oldest/latest params in conversations.history
-
-Important Slack API details:
-- conversations.list: use types='public_channel,private_channel', exclude_archived=true
-- conversations.history: use oldest param (unix timestamp) to filter by time
-- conversations.replies: pass channel + ts to get full thread
-- users.list: cache this on startup, refresh every 30 min
-- Rate limits: Slack allows ~50 req/min for Tier 3 methods. Use Promise.all with batching (max 5 concurrent)
-
-## Core Use Cases to Support
-
-### Category 1: Personal Activity
-Questions like:
-- "What did I do today?"
-- "Summarize my work this week"
-- "What messages did I send yesterday?"
-- "Show my activity in #engineering this week"
-
-How to handle:
-- Identify the asking user's ID from the message event
-- Filter messages where userId matches the asking user
-- Filter by detected time range (today/yesterday/this week/this month)
-- Group by channel, summarize with Claude
-
-### Category 2: Unreplied Mentions & Action Items
-Questions like:
-- "What messages mention me that I haven't replied to?"
-- "Show me my pending @mentions"
-- "Any messages with @here or @channel I missed?"
-- "What needs my attention?"
-
-How to handle:
-- Search for messages containing <@USER_ID> (direct mention), <!here>, <!channel>, <!everyone>
-- For each found message, check if the user has replied in the thread (conversations.replies)
-- If no reply from the user exists, include it as "unreplied"
-- Sort by urgency: direct mention > @here > @channel
-- Claude summarizes what needs attention
-
-### Category 3: Channel Summaries
-Questions like:
-- "Summarize #general today"
-- "What happened in #engineering this week?"
-- "Give me updates from all channels today"
-- "What did I miss yesterday?"
-
-How to handle:
-- Detect channel name in the query (#channel-name pattern)
-- If specific channel: fetch that channel's history for the time range
-- If "all channels" or no specific channel: fetch from all channels, merge, sort by time
-- Claude summarizes key discussions, decisions, and updates
-
-### Category 4: Important Messages / Daily Digest
-Questions like:
-- "What are today's important messages?"
-- "Any announcements today?"
-- "What's urgent right now?"
-- "Give me a daily digest"
-
-How to handle:
-- Fetch messages from all channels for the time range
-- Score importance: messages with @here/@channel/@everyone = high, messages with many reactions = high, 
-  messages with many thread replies = high, messages in #announcements or #important channels = high
-- Filter to top important messages
-- Claude generates a prioritized digest
-
-### Category 5: People & Topic Search
-Questions like:
-- "What did @alice say about the deployment?"
-- "Who is working on marketing?"
-- "What's the latest on Project X?"
-- "Any discussion about the deadline?"
-
-How to handle:
-- Extract keywords and person mentions from the query
-- If person mentioned: filter to their messages
-- Score all messages by keyword relevance
-- Claude answers with citations
-
-### Category 6: Thread Deep Dive
-Questions like:
-- "Summarize the thread about database migration"
-- "What was decided in the deployment discussion?"
-
-How to handle:
-- Search for messages matching keywords
-- For top matches, fetch full thread via conversations.replies
-- Include all thread replies in the Claude prompt
-- Claude summarizes the discussion and any decisions made
+1. User opens bot DM and types a question
+2. Bot checks DB: does this user have a stored token?
+3. **NO token** → sends "Connect your account" button (Slack OAuth link)
+4. User clicks → Slack OAuth page → clicks "Allow" (one-time)
+5. Bot stores user's `xoxp-` token in database
+6. **HAS token** → uses `search.messages` with the user's own token
+7. Filters results → Claude AI summarizes → sends formatted answer
+8. No @mention needed. User just types naturally.
 
 ## Architecture
 
-### Layer 1: Message Receiver (src/slack/)
-- Listen for `message` event (DM to bot) — NOT app_mention
-- No @mention needed. User just types in the bot's DM
-- Parse the raw message text
-- Post a "thinking" indicator (chat.postMessage with "Analyzing your question...")
-- Pass to the query processor
+```
+User DMs bot: "what did I do today?"
+  │
+  ▼
+Check DB: has user token?
+  │
+  ├─ NO → Send "Connect your account" Block Kit button
+  │       User clicks → Slack OAuth → /auth/callback
+  │       Store xoxp- token in PostgreSQL/SQLite
+  │       Reply "Connected! Ask me anything."
+  │
+  └─ YES → search.messages with user's xoxp- token
+           → Query parser detects type (personal/channel/mentions/etc)
+           → Filter & rank results
+           → Claude summarizes with citations
+           → Block Kit formatted response
+```
 
-### Layer 2: Query Processor (src/query/)
-- Detect query type: personal_activity | unreplied_mentions | channel_summary | important_messages | people_search | topic_search | thread_dive
-- Extract parameters: time range, target user, target channel, keywords
-- Time detection: "today" = last 24h, "yesterday" = 24-48h, "this week" = last 7 days, "this month" = last 30 days
-- Person detection: @username references
-- Channel detection: #channel-name references
+## Access Model
 
-Create this file: src/query/query-parser.ts
-```typescript
-interface ParsedQuery {
-  readonly type: 'personal_activity' | 'unreplied_mentions' | 'channel_summary' | 
-                 'important_messages' | 'people_search' | 'topic_search' | 'thread_dive';
-  readonly timeRange: { oldest: number; latest: number };
-  readonly targetUserId: string | null;
-  readonly targetChannel: string | null;
-  readonly keywords: readonly string[];
-  readonly rawQuestion: string;
+Each user's token (`xoxp-`) sees exactly what they see:
+- All public channels they're in → searchable
+- Private channels they're in → searchable
+- Their DMs → searchable
+- Group DMs they're in → searchable
+- Channels they're NOT in → not visible
+
+This is per-user. No admin needed. No /invite needed.
+
+## Database Layer
+
+### Prisma Schema
+
+Create `prisma/schema.prisma`:
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = env("DATABASE_PROVIDER")   // "sqlite" or "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UserToken {
+  id        String   @id @default(uuid())
+  userId    String   @unique              // Slack user ID (e.g., U0ATQR0JB6J)
+  token     String                        // xoxp- user OAuth token
+  teamId    String                        // Slack workspace ID
+  scopes    String                        // comma-separated granted scopes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 ```
 
-### Layer 3: Data Fetcher (src/search/)
-- channel-fetcher.ts: Fetch channels and messages based on ParsedQuery
-- mention-tracker.ts: Find unreplied mentions for a user
-- thread-fetcher.ts: Fetch full thread replies
-- importance-scorer.ts: Score messages by importance (reactions, replies, @here/@channel)
-- user-cache.ts: Cache user ID → display name mapping
-
-All functions return Envelope<T> pattern.
-
-### Layer 4: AI Summarizer (src/ai/)
-- prompt-builder.ts: Build different prompts based on query type
-- summarizer.ts: Call Claude API with prompt caching
-
-System prompt (use for ALL queries, cache this):
+### Token Store (`src/db/token-store.ts`)
+```typescript
+// Functions needed:
+getUserToken(userId: string): Promise<string | null>
+saveUserToken(userId: string, token: string, teamId: string, scopes: string): Promise<void>
+deleteUserToken(userId: string): Promise<void>
 ```
-You are AskBot, an AI knowledge assistant for a Slack workspace. Users ask you questions
-about their work, team activity, and organizational updates. You answer based ONLY on 
-real Slack messages provided to you.
+
+Use Prisma client. Return Envelope<T> pattern for all operations.
+
+## OAuth Flow
+
+### OAuth Config (`src/auth/oauth-config.ts`)
+```typescript
+// Build the Slack OAuth authorize URL
+// Scopes needed: search:read (user token scope)
+// Redirect URI: ${APP_URL}/auth/callback
+// State parameter: userId (so we know who authorized)
+```
+
+### OAuth Routes (`src/auth/oauth-routes.ts`)
+
+Two HTTP endpoints (use Express alongside Socket Mode):
+
+**GET /auth/install?user_id=xxx**
+- Builds Slack OAuth URL with user_id in state param
+- Redirects to: https://slack.com/oauth/v2/authorize?client_id=...&user_scope=search:read&redirect_uri=...&state=userId
+
+**GET /auth/callback?code=xxx&state=userId**
+- Exchanges code for token: POST https://slack.com/api/oauth.v2.access
+- Stores the authed_user.access_token in database
+- Shows "Success! Go back to Slack." page
+
+### Wire into App (`src/slack/app.ts`)
+- Create Express app for OAuth routes
+- Start Express on PORT alongside Socket Mode
+- Both run in the same Node.js process
+
+```typescript
+import express from 'express';
+
+const httpApp = express();
+registerOAuthRoutes(httpApp, config, logger);
+httpApp.listen(config.port);
+```
+
+## Updated DM Handler (`src/slack/handlers/dm.ts`)
+
+```typescript
+// When user sends DM:
+// 1. Get user's token from DB
+const token = await getUserToken(userId);
+
+// 2. No token → send auth button
+if (!token) {
+  await client.chat.postMessage({
+    channel: event.channel,
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: 'To answer your questions, I need access to your Slack data.' }
+      },
+      {
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: 'Connect Your Account' },
+          url: `${config.appUrl}/auth/install?user_id=${userId}`,
+          style: 'primary',
+        }]
+      }
+    ]
+  });
+  return;
+}
+
+// 3. Has token → search and answer
+const userClient = new WebClient(token);
+const searchResults = await userClient.search.messages({ query: keywords, count: 20 });
+// ... process results, call Claude, format response
+```
+
+## Search with User Token (`src/search/user-search.ts`)
+
+Use `search.messages` API with the user's `xoxp-` token:
+```typescript
+const result = await userClient.search.messages({
+  query: searchQuery,      // keywords extracted from question
+  sort: 'timestamp',
+  sort_dir: 'desc',
+  count: 20,
+});
+```
+
+This searches across ALL channels, DMs, and group DMs the user has access to.
+
+## Query Types to Support
+
+### Category 1: Personal Activity
+- "What did I do today?" → search `from:@me` + time filter
+- "Summarize my work this week" → search `from:@me` + last 7 days
+- "What did I work on yesterday?" → search `from:@me` + yesterday
+
+### Category 2: Unreplied Mentions
+- "What mentions do I need to reply to?" → search `to:@me` + check threads
+- "Show me unreplied @mentions" → search `has:mention` for user
+- "Any @here I missed?" → search `@here` or `@channel`
+
+### Category 3: Channel Summaries
+- "Summarize #general today" → search `in:#general` + today
+- "What happened in #engineering?" → search `in:#engineering`
+- "What did I miss yesterday?" → search all + yesterday
+
+### Category 4: Important / Digest
+- "Today's important messages" → search all + sort by reactions/replies
+- "Daily digest" → search all today + rank by importance
+- "Any announcements?" → search `in:#announcements` or `@here/@channel`
+
+### Category 5: People & Topic Search
+- "What did @alice say about deployment?" → search `from:@alice deployment`
+- "Who is working on marketing?" → search `marketing`
+- "Latest on Project X?" → search `Project X`
+
+## AI Layer (src/ai/)
+
+### prompt-builder.ts
+System prompt (cached):
+```
+You are AskBot, an AI knowledge assistant for a Slack workspace. You answer questions
+based ONLY on real Slack messages provided to you.
 
 RULES:
-1. ONLY use information from the provided messages. Never fabricate information.
-2. ALWAYS cite sources: mention the person and channel — "According to @alice in #engineering..."
-3. Use Slack mrkdwn formatting: *bold*, _italic_, `code`, > blockquote, bullet lists with •
-4. Structure your answers clearly with sections when appropriate.
-5. If not enough information is found, say so honestly and suggest where to look.
-6. For activity summaries, organize chronologically and group by theme/project.
-7. For unreplied mentions, list them with urgency level and recommended action.
-8. For digests, prioritize by importance: decisions > announcements > discussions > FYI.
-9. Keep answers concise but complete. Max 4-5 short paragraphs.
-10. Always include a "Sources" line at the end listing channels referenced.
+1. ONLY use information from the provided messages. Never fabricate.
+2. ALWAYS cite sources: "According to @username in #channel..."
+3. Use Slack mrkdwn: *bold*, _italic_, `code`, > blockquote
+4. If not enough info, say so and suggest where to look.
+5. Keep answers concise: 3-4 short paragraphs max.
+6. End with "Sources:" listing channels referenced.
 ```
 
-Query-specific user prompts:
+### summarizer.ts
+- Use @anthropic-ai/sdk
+- temperature: 0.3, max_tokens: 1024
+- cache_control: { type: "ephemeral" } on system prompt
+- Handle rate limits with single retry
 
-For personal_activity:
-```
-The user (USER_NAME, ID: USER_ID) is asking about their own activity.
-Question: {question}
+## Formatter (src/formatter/slack-blocks.ts)
+- Section block: AI answer (split at 2800 chars if long)
+- Divider
+- Context block: "Sources: #ch1, #ch2 | X messages analyzed"
 
-Here are their messages found across the workspace:
-{messages grouped by channel with timestamps}
+## Environment Config
 
-Summarize their activity. Group by project/theme, include key contributions and discussions.
-```
-
-For unreplied_mentions:
-```
-The user (USER_NAME, ID: USER_ID) wants to know about messages that mention them 
-which they haven't replied to yet.
-
-UNREPLIED MENTIONS:
-{list of messages mentioning the user, with channel, sender, time, and thread status}
-
-List each unreplied mention with:
-- Who sent it and in which channel
-- What they said (brief)
-- How urgent it seems (high/medium/low)
-- Suggested action
+### New env vars to add to src/config/env.ts:
+```typescript
+SLACK_CLIENT_ID: z.string().min(1),
+SLACK_CLIENT_SECRET: z.string().min(1),
+APP_URL: z.string().url(),
+PORT: z.coerce.number().default(3000),
+DATABASE_URL: z.string().min(1),
+DATABASE_PROVIDER: z.enum(['sqlite', 'postgresql']).default('sqlite'),
 ```
 
-For channel_summary:
+### Local dev (.env.local):
 ```
-The user wants a summary of activity in {channel_name(s)} for {time_range}.
-Question: {question}
-
-MESSAGES:
-{messages grouped by channel}
-
-Summarize the key discussions, decisions, and updates. Group by topic/theme.
-```
-
-For important_messages:
-```
-The user wants to see important messages from {time_range}.
-Question: {question}
-
-HIGH IMPORTANCE MESSAGES (many reactions, @here/@channel, announcements):
-{important messages}
-
-OTHER NOTABLE MESSAGES:
-{other messages}
-
-Create a prioritized digest. Lead with the most important items.
-Categorize as: Urgent | Announcements | Decisions | FYI
+NODE_ENV=development
+DATABASE_PROVIDER=sqlite
+DATABASE_URL=file:./dev.db
+APP_URL=http://localhost:3000
+PORT=3000
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+SLACK_SIGNING_SECRET=...
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+ANTHROPIC_API_KEY=sk-ant-...
+CLAUDE_MODEL=claude-sonnet-4-20250514
+LOG_LEVEL=debug
+RATE_LIMIT_PER_USER_PER_MINUTE=5
 ```
 
-### Layer 5: Response Formatter (src/formatter/)
-- Format Claude's response as Slack Block Kit
-- Header with query type icon
-- Main answer in section blocks (split at 2800 chars)
-- Sources footer with channels referenced
-- Timestamp of when the analysis was done
+### Production (Railway dashboard):
+```
+NODE_ENV=production
+DATABASE_PROVIDER=postgresql
+DATABASE_URL=(auto-provided by Railway PostgreSQL addon)
+APP_URL=https://your-app.up.railway.app
+PORT=3000
++ all Slack/Anthropic tokens
+```
 
-## File Structure to Create
+## File Structure
 
 ```
+prisma/
+  schema.prisma               — UserToken model
 src/
-  slack/
-    app.ts                      — UPDATE: add message listener for DMs
-    handlers/
-      mention.ts                — KEEP: for @mention in channels (existing)
-      dm-handler.ts             — NEW: handle DM messages (main entry point)
+  index.ts                    — UPDATE: init Prisma, start Express + Socket Mode
+  config/env.ts               — UPDATE: add new env vars
+  types/index.ts              — UPDATE: add new types
+  db/
+    token-store.ts             — NEW: save/get/delete user tokens
+  auth/
+    oauth-config.ts            — NEW: OAuth URLs and scopes
+    oauth-routes.ts            — NEW: /auth/install + /auth/callback
   query/
-    query-parser.ts             — NEW: parse question into ParsedQuery
-    query-parser.test.ts        — NEW: tests
-    time-parser.ts              — NEW: "today"/"this week" → unix timestamps
-    time-parser.test.ts         — NEW: tests
+    query-parser.ts            — NEW: detect query type + extract params
+    time-parser.ts             — NEW: "today"/"this week" → timestamps
   search/
-    channel-fetcher.ts          — NEW: fetch channels and messages
-    mention-tracker.ts          — NEW: find unreplied mentions
-    thread-fetcher.ts           — NEW: fetch thread replies
-    importance-scorer.ts        — NEW: score message importance
-    user-cache.ts               — NEW: cache user ID → name
+    user-search.ts             — NEW: search.messages with user token
+    importance-scorer.ts       — NEW: rank messages by importance
   ai/
-    prompt-builder.ts           — NEW: build prompts per query type
-    summarizer.ts               — NEW: call Claude API
+    prompt-builder.ts          — NEW: system + user prompts per query type
+    summarizer.ts              — NEW: Claude API call
   formatter/
-    slack-blocks.ts             — NEW: Block Kit response builder
-  types/
-    index.ts                    — UPDATE: add ParsedQuery, ImportanceScore types
+    slack-blocks.ts            — NEW: Block Kit response
+  slack/
+    app.ts                     — UPDATE: add Express for OAuth
+    handlers/
+      dm.ts                    — UPDATE: token check → auth or search
+      mention.ts               — KEEP existing
 ```
-
-## Event Subscription Required
-
-The Slack app needs this bot event subscribed (tell the app admin):
-- `message.im` — to receive DM messages to the bot
-
-This is critical. Without message.im, the bot cannot receive DMs.
 
 ## Build Order
 
-1. First: query/time-parser.ts + query/query-parser.ts (with tests)
-2. Then: search/user-cache.ts + search/channel-fetcher.ts
-3. Then: search/mention-tracker.ts + search/importance-scorer.ts + search/thread-fetcher.ts
-4. Then: ai/prompt-builder.ts + ai/summarizer.ts
-5. Then: formatter/slack-blocks.ts
-6. Then: slack/handlers/dm-handler.ts (wire everything together)
-7. Then: update slack/app.ts to register the DM handler
-8. Finally: run npm run typecheck && npm test
+1. `npm install prisma @prisma/client express @types/express` — add dependencies
+2. Create `prisma/schema.prisma` + `src/db/token-store.ts` — database layer
+3. Run `npx prisma generate` + `npx prisma db push` — create local DB
+4. Create `src/auth/oauth-config.ts` + `src/auth/oauth-routes.ts` — OAuth flow
+5. Update `src/config/env.ts` — add new env vars
+6. Update `src/types/index.ts` — add new types
+7. Update `src/slack/app.ts` — add Express server for OAuth
+8. Update `src/slack/handlers/dm.ts` — token check → auth or search
+9. Create `src/query/query-parser.ts` + `src/query/time-parser.ts` — query parsing
+10. Create `src/search/user-search.ts` — search.messages with user token
+11. Create `src/ai/prompt-builder.ts` + `src/ai/summarizer.ts` — AI layer
+12. Create `src/formatter/slack-blocks.ts` — response formatting
+13. Update `src/index.ts` — init Prisma + Express + Socket Mode
+14. Run `npm run typecheck && npm test` — verify
+15. Create `.env.local` and `.env.production` templates
 
-## Testing
+## Quick Reference
 
-Write tests for: query-parser, time-parser, importance-scorer, prompt-builder, formatter.
-Mock Slack API and Anthropic SDK in tests. Target 80% coverage.
+```bash
+# Build everything:
+"Read DEV-PROMPT.md and implement all steps in the build order."
+
+# Or step by step:
+"Read DEV-PROMPT.md and implement steps 1-3 (database layer)"
+"Read DEV-PROMPT.md and implement steps 4-7 (OAuth + config)"
+"Read DEV-PROMPT.md and implement steps 8-12 (search + AI pipeline)"
+"Read DEV-PROMPT.md and implement steps 13-15 (wiring + templates)"
 ```
-
----
-
-## Use Case Reference (All Supported Queries)
-
-### Personal
-- "What did I do today?"
-- "Summarize my work this week"
-- "What did I work on yesterday?"
-- "Show my activity in #engineering"
-
-### Unreplied / Action Items
-- "What mentions do I need to reply to?"
-- "Show me unreplied @mentions"
-- "Any @here or @channel messages I missed?"
-- "What needs my attention?"
-- "List messages mentioned for all users that I haven't replied to"
-
-### Channel Summaries
-- "Summarize #general today"
-- "What happened in #engineering this week?"
-- "What did I miss yesterday?"
-- "Give me updates from all channels"
-
-### Daily Digest / Important
-- "What are today's important messages?"
-- "Give me a daily digest"
-- "Any announcements today?"
-- "What's urgent right now?"
-
-### People & Topic Search
-- "What did @alice say about deployment?"
-- "Who is working on marketing?"
-- "What's the latest on Project X?"
-- "Did anyone mention the deadline?"
-- "Any discussion about the database?"
-
-### Thread Summaries
-- "Summarize the deployment discussion"
-- "What was decided about the new feature?"

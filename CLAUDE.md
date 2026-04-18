@@ -4,9 +4,9 @@
 
 When a developer opens this project with Claude Code, follow these rules:
 
-1. **First session:** Read this CLAUDE.md fully, then read PLAN.md to understand what's built and what's remaining
-2. **When dev says "build step X"** or **"follow PLAN.md step X":** Read PLAN.md, find that step, implement it completely with tests
-3. **When dev says "build everything":** Read PLAN.md, check what's already implemented in src/, build remaining steps in order
+1. **First session:** Read this CLAUDE.md fully, then read DEV-PROMPT.md for the full implementation spec
+2. **When dev says "build step X"** or **"follow DEV-PROMPT.md step X":** Read DEV-PROMPT.md, find that step, implement it completely with tests
+3. **When dev says "build everything":** Read DEV-PROMPT.md, check what's already implemented in src/, build remaining steps in order
 4. **When dev says "what's the status":** List which PLAN.md steps are done (have code) vs remaining (empty dirs or TODOs)
 5. **Before writing any code:** Read src/types/index.ts for interfaces, src/utils/envelope.ts for the Envelope pattern, and existing code in the same module
 6. **After writing code:** Run `npm run typecheck` and `npm test` to verify
@@ -16,9 +16,9 @@ When a developer opens this project with Claude Code, follow these rules:
 
 **Stack:** Node.js 20+, TypeScript, Slack Bolt (Socket Mode), Anthropic Claude API, Zod, Pino, Vitest
 
-**What it does:** A Slack bot that answers any question by reading messages from channels it's invited to, filtering relevant ones, and summarizing with Claude AI. Users ask via `@AskBot` mention or `/askbot` slash command.
+**What it does:** A Slack bot that answers any question by searching the user's accessible Slack messages and summarizing with Claude AI. Users just DM the bot — no @mention needed.
 
-**Architecture:** Hybrid approach - uses bot token only (no user token). Bot reads messages via `conversations.history` from channels it's been `/invite`d to. No OAuth flow, no database, no public server needed.
+**Architecture:** Per-user OAuth. Each user authorizes once → bot stores their `xoxp-` token in database → uses `search.messages` with their token to search everything they can see. Socket Mode for events + Express for OAuth callback. PostgreSQL in prod (Railway), SQLite for local dev.
 
 ## Core Use Cases
 
