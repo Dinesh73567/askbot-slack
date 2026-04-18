@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { loadConfig } from './config/env.js';
 import { createLogger } from './utils/logger.js';
 import { createApp } from './slack/app.js';
+import { disconnectPrisma } from './db/token-store.js';
 
 async function main() {
   const config = loadConfig();
@@ -9,14 +10,38 @@ async function main() {
 
   logger.info('AskBot starting...');
 
-  const app = createApp(config, logger);
-  await app.start();
+  const { boltApp, expressApp } = createApp(config, logger);
+
+  // Start Bolt Socket Mode
+  await boltApp.start();
+  logger.info('Bolt Socket Mode connected');
+
+  // Start Express for OAuth routes
+  // Railway (and similar PaaS) injects PORT at runtime; config.port is the fallback.
+  const port = parseInt(process.env.PORT ?? String(config.port), 10);
+  const httpServer = expressApp.listen(port, () => {
+    logger.info({ port }, 'Express HTTP server listening');
+  });
 
   logger.info('AskBot is running! Waiting for messages...');
 
   const shutdown = async () => {
     logger.info('Shutting down...');
-    await app.stop();
+
+    // Stop accepting new HTTP connections
+    httpServer.close((err) => {
+      if (err) {
+        logger.error({ err }, 'Error closing HTTP server');
+      }
+    });
+
+    // Stop Bolt
+    await boltApp.stop();
+
+    // Disconnect Prisma
+    await disconnectPrisma();
+
+    logger.info('Shutdown complete');
     process.exit(0);
   };
 

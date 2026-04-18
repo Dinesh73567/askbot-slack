@@ -1,8 +1,10 @@
+import express, { type Express } from 'express';
 import { App, LogLevel } from '@slack/bolt';
 import type { AppConfig } from '../types/index.js';
 import type { Logger } from '../utils/logger.js';
 import { registerMentionHandler } from './handlers/mention.js';
 import { registerDmHandler } from './handlers/dm.js';
+import { createOAuthRouter } from '../auth/oauth-routes.js';
 
 const LOG_LEVEL_MAP: Record<string, LogLevel> = {
   debug: LogLevel.DEBUG,
@@ -11,8 +13,14 @@ const LOG_LEVEL_MAP: Record<string, LogLevel> = {
   error: LogLevel.ERROR,
 };
 
-export function createApp(config: AppConfig, logger: Logger): App {
-  const app = new App({
+export interface CreatedApp {
+  readonly boltApp: App;
+  readonly expressApp: Express;
+}
+
+export function createApp(config: AppConfig, logger: Logger): CreatedApp {
+  // --- Bolt (Socket Mode) ---
+  const boltApp = new App({
     token: config.slackBotToken,
     appToken: config.slackAppToken,
     signingSecret: config.slackSigningSecret,
@@ -20,8 +28,21 @@ export function createApp(config: AppConfig, logger: Logger): App {
     logLevel: LOG_LEVEL_MAP[config.logLevel] ?? LogLevel.INFO,
   });
 
-  registerMentionHandler(app, logger);
-  registerDmHandler(app, logger);
+  registerMentionHandler(boltApp, logger);
+  registerDmHandler(boltApp, config, logger);
 
-  return app;
+  // --- Express (OAuth routes) ---
+  const expressApp = express();
+  expressApp.use(express.json());
+
+  // Mount OAuth router under /auth
+  const oauthRouter = createOAuthRouter(config, logger);
+  expressApp.use('/auth', oauthRouter);
+
+  // Health check
+  expressApp.get('/health', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
+  return { boltApp, expressApp };
 }

@@ -1,3 +1,7 @@
+// Uses PostgreSQL for both local dev and production.
+// Local: run Postgres via Docker (see README) and set DATABASE_URL accordingly.
+// Production: Railway Postgres addon auto-provides DATABASE_URL.
+
 generator client {
   provider = "prisma-client-js"
 }
