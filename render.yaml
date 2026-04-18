@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: askbot-slack
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-4-20250514
+      - key: LOG_LEVEL
+        value: info
+      - key: RATE_LIMIT_PER_USER_PER_MINUTE
+        value: 5
