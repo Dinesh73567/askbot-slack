@@ -1,10 +1,13 @@
 services:
   - type: worker
     name: askbot-slack
-    runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    autoDeploy: false
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: SLACK_BOT_TOKEN
         sync: false
       - key: SLACK_APP_TOKEN
