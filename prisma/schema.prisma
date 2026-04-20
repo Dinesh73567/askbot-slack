@@ -20,3 +20,28 @@ model UserToken {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model Poll {
+  id        String     @id @default(uuid())
+  channelId String
+  messageTs String?
+  creatorId String
+  question  String
+  options   String[]
+  mode      String     @default("single") // "single" or "multi"
+  closedAt  DateTime?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  votes     PollVote[]
+}
+
+model PollVote {
+  id          String   @id @default(uuid())
+  pollId      String
+  optionIndex Int
+  userId      String
+  createdAt   DateTime @default(now())
+  poll        Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, optionIndex, userId])
+}

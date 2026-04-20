@@ -2,24 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { registerDeleteHandler } from './delete.js';
 import type { App } from '@slack/bolt';
 
-vi.mock('../../db/token-store.js', () => ({
-  getUserToken: vi.fn(),
-}));
-
-vi.mock('@slack/web-api', () => ({
-  WebClient: vi.fn().mockImplementation((token: string) => ({
-    _token: token,
-    chat: {
-      delete: vi.fn().mockResolvedValue({}),
-    },
-  })),
-}));
-
-import { getUserToken } from '../../db/token-store.js';
-import { WebClient } from '@slack/web-api';
-
-const mockedGetUserToken = vi.mocked(getUserToken);
-
 describe('registerDeleteHandler', () => {
   const mockLogger = {
     info: vi.fn(),
@@ -33,8 +15,6 @@ describe('registerDeleteHandler', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    mockedGetUserToken.mockResolvedValue({ success: true, data: 'xoxp-user-token', error: null });
 
     const mockApp = {
       command: vi.fn((name: string, handler: (args: Record<string, unknown>) => Promise<void>) => {
@@ -73,7 +53,7 @@ describe('registerDeleteHandler', () => {
     expect(ack).toHaveBeenCalledOnce();
   });
 
-  it('deletes both bot and user messages', async () => {
+  it('deletes only bot messages and skips user messages', async () => {
     const ack = vi.fn();
     const client = {
       auth: { test: vi.fn().mockResolvedValue({ user_id: 'BOT123' }) },
@@ -99,52 +79,13 @@ describe('registerDeleteHandler', () => {
       client,
     });
 
-    // Bot messages deleted via bot client
+    // Only bot messages deleted
+    expect(client.chat.delete).toHaveBeenCalledTimes(2);
     expect(client.chat.delete).toHaveBeenCalledWith({ channel: 'D456', ts: '1111.1111' });
     expect(client.chat.delete).toHaveBeenCalledWith({ channel: 'D456', ts: '3333.3333' });
 
-    // User message deleted via user WebClient
-    const userClientInstance = vi.mocked(WebClient).mock.results[0]?.value;
-    expect(userClientInstance.chat.delete).toHaveBeenCalledWith({ channel: 'D456', ts: '2222.2222' });
-
     expect(client.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Deleted 3 messages from this conversation.' }),
-    );
-  });
-
-  it('only deletes bot messages when no user token available', async () => {
-    mockedGetUserToken.mockResolvedValue({ success: true, data: null, error: null });
-
-    const ack = vi.fn();
-    const client = {
-      auth: { test: vi.fn().mockResolvedValue({ user_id: 'BOT123' }) },
-      conversations: {
-        history: vi.fn().mockResolvedValue({
-          messages: [
-            { user: 'BOT123', ts: '1111.1111' },
-            { user: 'U123', ts: '2222.2222' },
-          ],
-          response_metadata: {},
-        }),
-      },
-      chat: {
-        delete: vi.fn().mockResolvedValue({}),
-        postEphemeral: vi.fn().mockResolvedValue({}),
-      },
-    };
-
-    await commandHandler({
-      ack,
-      command: { user_id: 'U123', channel_id: 'D456' },
-      client,
-    });
-
-    // Only bot message deleted
-    expect(client.chat.delete).toHaveBeenCalledTimes(1);
-    expect(client.chat.delete).toHaveBeenCalledWith({ channel: 'D456', ts: '1111.1111' });
-
-    expect(client.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Deleted 1 message from this conversation.' }),
+      expect.objectContaining({ text: 'Deleted 2 bot messages from this conversation.' }),
     );
   });
 
@@ -159,7 +100,7 @@ describe('registerDeleteHandler', () => {
             response_metadata: { next_cursor: 'cursor123' },
           })
           .mockResolvedValueOnce({
-            messages: [{ user: 'U123', ts: '2222.2222' }],
+            messages: [{ user: 'BOT123', ts: '2222.2222' }],
             response_metadata: {},
           }),
       },
@@ -176,9 +117,7 @@ describe('registerDeleteHandler', () => {
     });
 
     expect(client.conversations.history).toHaveBeenCalledTimes(2);
-    expect(client.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Deleted 2 messages from this conversation.' }),
-    );
+    expect(client.chat.delete).toHaveBeenCalledTimes(2);
   });
 
   it('continues when individual deletion fails', async () => {
@@ -210,7 +149,35 @@ describe('registerDeleteHandler', () => {
 
     expect(client.chat.delete).toHaveBeenCalledTimes(2);
     expect(client.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Deleted 1 message from this conversation.' }),
+      expect.objectContaining({ text: 'Deleted 1 bot message from this conversation.' }),
     );
+  });
+
+  it('skips messages with no timestamp', async () => {
+    const ack = vi.fn();
+    const client = {
+      auth: { test: vi.fn().mockResolvedValue({ user_id: 'BOT123' }) },
+      conversations: {
+        history: vi.fn().mockResolvedValue({
+          messages: [
+            { user: 'BOT123' },
+            { user: 'BOT123', ts: '1111.1111' },
+          ],
+          response_metadata: {},
+        }),
+      },
+      chat: {
+        delete: vi.fn().mockResolvedValue({}),
+        postEphemeral: vi.fn().mockResolvedValue({}),
+      },
+    };
+
+    await commandHandler({
+      ack,
+      command: { user_id: 'U123', channel_id: 'D456' },
+      client,
+    });
+
+    expect(client.chat.delete).toHaveBeenCalledTimes(1);
   });
 });

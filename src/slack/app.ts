@@ -5,6 +5,7 @@ import type { Logger } from '../utils/logger.js';
 import { registerMentionHandler } from './handlers/mention.js';
 import { registerDmHandler } from './handlers/dm.js';
 import { registerDeleteHandler } from './handlers/delete.js';
+import { registerPollHandler } from './handlers/poll.js';
 import { createOAuthRouter } from '../auth/oauth-routes.js';
 
 const LOG_LEVEL_MAP: Record<string, LogLevel> = {
@@ -32,6 +33,7 @@ export function createApp(config: AppConfig, logger: Logger): CreatedApp {
   registerMentionHandler(boltApp, logger);
   registerDmHandler(boltApp, config, logger);
   registerDeleteHandler(boltApp, logger);
+  registerPollHandler(boltApp, logger);
 
   // --- Express (OAuth routes) ---
   const expressApp = express();

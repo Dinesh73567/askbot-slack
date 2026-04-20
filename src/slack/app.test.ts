@@ -6,6 +6,7 @@ vi.mock('@slack/bolt', () => {
   const mockApp = {
     event: vi.fn(),
     command: vi.fn(),
+    action: vi.fn(),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
   };

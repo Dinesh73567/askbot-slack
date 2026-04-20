@@ -82,3 +82,43 @@ export interface SearchResult {
   readonly reactionCount: number;
   readonly replyCount: number;
 }
+
+// ============================================
+// Poll Feature
+// ============================================
+
+/** Poll voting mode */
+export type PollMode = 'single' | 'multi';
+
+/** A poll with its current state */
+export interface PollData {
+  readonly id: string;
+  readonly channelId: string;
+  readonly messageTs: string | null;
+  readonly creatorId: string;
+  readonly question: string;
+  readonly options: readonly string[];
+  readonly mode: PollMode;
+  readonly closedAt: Date | null;
+  readonly createdAt: Date;
+}
+
+/** A single vote record */
+export interface PollVoteRecord {
+  readonly optionIndex: number;
+  readonly userId: string;
+}
+
+/** Aggregated poll state for rendering */
+export interface PollState {
+  readonly poll: PollData;
+  readonly votes: readonly PollVoteRecord[];
+  readonly voterNames: ReadonlyMap<string, string>;
+}
+
+/** Parsed poll command input */
+export interface ParsedPollCommand {
+  readonly question: string;
+  readonly options: readonly string[];
+  readonly mode: PollMode;
+}

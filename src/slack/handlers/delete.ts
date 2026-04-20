@@ -1,12 +1,9 @@
-import { WebClient } from '@slack/web-api';
 import type { App } from '@slack/bolt';
 import type { Logger } from '../../utils/logger.js';
-import { getUserToken } from '../../db/token-store.js';
 
 /**
  * Registers the /delete slash command.
- * Deletes all messages (bot + user) in the DM conversation.
- * Uses the bot token for bot messages and the user's OAuth token for user messages.
+ * Deletes only bot messages in the conversation.
  */
 export function registerDeleteHandler(app: App, logger: Logger): void {
   app.command('/delete', async ({ ack, command, client }) => {
@@ -31,12 +28,7 @@ export function registerDeleteHandler(app: App, logger: Logger): void {
         return;
       }
 
-      // Get user's OAuth token for deleting user messages
-      const tokenResult = await getUserToken(userId);
-      const userToken = tokenResult.success ? tokenResult.data : null;
-      const userClient = userToken ? new WebClient(userToken) : null;
-
-      // Paginate through all conversation history and collect messages
+      // Paginate through conversation history and delete only bot messages
       let cursor: string | undefined;
       let deletedCount = 0;
       let hasMore = true;
@@ -51,26 +43,16 @@ export function registerDeleteHandler(app: App, logger: Logger): void {
         const messages = history.messages ?? [];
 
         for (const msg of messages) {
-          if (!msg.ts) continue;
+          if (!msg.ts || msg.user !== botUserId) continue;
 
           try {
-            if (msg.user === botUserId) {
-              // Delete bot messages with bot token
-              await client.chat.delete({
-                channel: channelId,
-                ts: msg.ts,
-              });
-              deletedCount++;
-            } else if (msg.user === userId && userClient) {
-              // Delete user messages with user's own token
-              await userClient.chat.delete({
-                channel: channelId,
-                ts: msg.ts,
-              });
-              deletedCount++;
-            }
+            await client.chat.delete({
+              channel: channelId,
+              ts: msg.ts,
+            });
+            deletedCount++;
           } catch (deleteErr) {
-            logger.warn({ ts: msg.ts, user: msg.user, err: deleteErr }, 'Failed to delete message');
+            logger.warn({ ts: msg.ts, err: deleteErr }, 'Failed to delete bot message');
           }
         }
 
@@ -83,7 +65,7 @@ export function registerDeleteHandler(app: App, logger: Logger): void {
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
-        text: `Deleted ${deletedCount} message${deletedCount === 1 ? '' : 's'} from this conversation.`,
+        text: `Deleted ${deletedCount} bot message${deletedCount === 1 ? '' : 's'} from this conversation.`,
       });
     } catch (error) {
       logger.error({ err: error, userId, channelId }, 'Failed to execute delete command');
